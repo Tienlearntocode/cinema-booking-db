@@ -1,3 +1,42 @@
 node_modules/
 .env
 dist/
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Environment variables (Chặn tất cả file .env thật, chỉ giữ lại .env.example)
+.env
+.env.*
+!.env.example
+
+# Logs & Runtime data
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+
+# Database local volumes & raw dump files (Tránh đẩy file backup nặng lên Git)
+postgres_data/
+pgdata/
+*.dump
+*.backup
+*.sql.gz
+
+# IDE & OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
