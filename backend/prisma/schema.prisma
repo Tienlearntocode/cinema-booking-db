@@ -1,0 +1,391 @@
+// Khung schema cho DT03 - Đặt vé xem phim (Prisma 6, PostgreSQL)
+// Chủ sở hữu file: B (Trần Đăng Long). Cần thêm/sửa bảng thì nhắn B hoặc mở PR cho B duyệt.
+// Tên field giữ dạng snake_case trùng tên cột trong DB để cả nhóm viết SQL thuần cho dễ.
+// CHECK, partial index, EXCLUDE, trigger: viết bằng SQL migration (xem docs/ERD.md).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("MIGRATION_DATABASE_URL")
+}
+
+// ---------------------------------------------------------------
+// ENUM
+// ---------------------------------------------------------------
+
+enum TrangThaiDatVe {
+  CHO_THANH_TOAN
+  DA_XAC_NHAN
+  DA_HUY
+  HET_HAN
+
+  @@map("trang_thai_dat_ve")
+}
+
+enum TrangThaiVe {
+  DA_DAT
+  DA_XUAT
+  DA_HUY
+
+  @@map("trang_thai_ve")
+}
+
+enum TrangThaiDonHang {
+  CHO_THANH_TOAN
+  DA_THANH_TOAN
+  DA_HUY
+
+  @@map("trang_thai_don_hang")
+}
+
+enum TrangThaiThanhToan {
+  THANH_CONG
+  THAT_BAI
+  HOAN_TIEN
+
+  @@map("trang_thai_thanh_toan")
+}
+
+enum PhuongThucThanhToan {
+  TIEN_MAT
+  THE
+  CHUYEN_KHOAN
+  VI_DIEN_TU
+
+  @@map("phuong_thuc_thanh_toan")
+}
+
+enum LoaiKhuyenMai {
+  PHAN_TRAM
+  SO_TIEN
+
+  @@map("loai_khuyen_mai")
+}
+
+enum HangThe {
+  DONG
+  BAC
+  VANG
+  KIM_CUONG
+
+  @@map("hang_the")
+}
+
+// ---------------------------------------------------------------
+// C: Người dùng, vai trò, kiểm toán
+// ---------------------------------------------------------------
+
+model VaiTro {
+  id         Int         @id @default(autoincrement())
+  ten        String      @unique @db.VarChar(50)
+  mo_ta      String?
+  nguoi_dung NguoiDung[]
+
+  @@map("vai_tro")
+}
+
+model NguoiDung {
+  id            Int      @id @default(autoincrement())
+  vai_tro_id    Int
+  ho_ten        String   @db.VarChar(100)
+  email         String   @unique @db.VarChar(150)
+  so_dien_thoai String?  @db.VarChar(20)
+  mat_khau_hash String   @db.VarChar(255)
+  tao_luc       DateTime @default(now()) @db.Timestamptz(6)
+
+  vai_tro       VaiTro        @relation(fields: [vai_tro_id], references: [id])
+  the_thanh_vien TheThanhVien?
+  dat_ve        DatVe[]
+  giu_ghe       GiuGhe[]
+  don_hang      DonHang[]
+  danh_gia      DanhGia[]
+
+  @@map("nguoi_dung")
+}
+
+model NhatKyKiemToan {
+  id             BigInt   @id @default(autoincrement())
+  bang_ten       String   @db.VarChar(100)
+  ban_ghi_id     String?  @db.VarChar(50)
+  hanh_dong      String   @db.VarChar(10) // INSERT / UPDATE / DELETE
+  du_lieu_cu     Json?    // jsonb
+  du_lieu_moi    Json?    // jsonb
+  nguoi_thuc_hien String? @db.VarChar(100)
+  thoi_gian      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([bang_ten, thoi_gian])
+  @@map("nhat_ky_kiem_toan")
+}
+
+// ---------------------------------------------------------------
+// B: Phim, thể loại, rạp, phòng, ghế, suất chiếu
+// ---------------------------------------------------------------
+
+model Phim {
+  id              Int       @id @default(autoincrement())
+  ten_phim        String    @db.VarChar(200)
+  mo_ta           String?
+  thoi_luong      Int       // phút, CHECK > 0 (SQL migration)
+  ngay_khoi_chieu DateTime? @db.Date
+  gioi_han_tuoi   Int       @default(0)
+
+  the_loai  PhimTheLoai[]
+  suat_chieu SuatChieu[]
+  danh_gia  DanhGia[]
+
+  @@map("phim")
+}
+
+model TheLoai {
+  id        Int     @id @default(autoincrement())
+  ten       String  @unique @db.VarChar(100)
+  parent_id Int?
+
+  cha  TheLoai?  @relation("TheLoaiCha", fields: [parent_id], references: [id], onDelete: SetNull)
+  con  TheLoai[] @relation("TheLoaiCha")
+  phim PhimTheLoai[]
+
+  @@map("the_loai")
+}
+
+model PhimTheLoai {
+  phim_id     Int
+  the_loai_id Int
+
+  phim    Phim    @relation(fields: [phim_id], references: [id], onDelete: Cascade)
+  the_loai TheLoai @relation(fields: [the_loai_id], references: [id], onDelete: Cascade)
+
+  @@id([phim_id, the_loai_id])
+  @@map("phim_the_loai")
+}
+
+model Rap {
+  id            Int     @id @default(autoincrement())
+  ten_rap       String  @db.VarChar(150)
+  dia_chi       String  @db.VarChar(255)
+  thanh_pho     String  @db.VarChar(100)
+  so_dien_thoai String? @db.VarChar(20)
+
+  phong_chieu PhongChieu[]
+
+  @@map("rap")
+}
+
+model PhongChieu {
+  id         Int    @id @default(autoincrement())
+  rap_id     Int
+  ten_phong  String @db.VarChar(50)
+  loai_phong String @default("2D") @db.VarChar(20)
+
+  rap        Rap         @relation(fields: [rap_id], references: [id])
+  ghe        Ghe[]
+  suat_chieu SuatChieu[]
+
+  @@unique([rap_id, ten_phong])
+  @@map("phong_chieu")
+}
+
+// Thực thể yếu: phụ thuộc phong_chieu
+model Ghe {
+  id        Int     @id @default(autoincrement())
+  phong_id  Int
+  hang      String  @db.Char(1)
+  so        Int
+  loai_ghe  String  @default("THUONG") @db.VarChar(20)
+  bao_tri   Boolean @default(false)
+
+  phong_chieu PhongChieu @relation(fields: [phong_id], references: [id], onDelete: Cascade)
+  ve          Ve[]
+  giu_ghe     GiuGhe[]
+
+  @@unique([phong_id, hang, so])
+  @@map("ghe")
+}
+
+model SuatChieu {
+  id           Int      @id @default(autoincrement())
+  phim_id      Int
+  phong_id     Int
+  gio_bat_dau  DateTime @db.Timestamptz(6)
+  gio_ket_thuc DateTime @db.Timestamptz(6) // CHECK > gio_bat_dau (SQL migration)
+  gia_ve       Decimal  @db.Decimal(12, 0)
+
+  phim        Phim       @relation(fields: [phim_id], references: [id])
+  phong_chieu PhongChieu @relation(fields: [phong_id], references: [id])
+  dat_ve      DatVe[]
+  ve          Ve[]
+  giu_ghe     GiuGhe[]
+
+  @@index([phim_id, gio_bat_dau])
+  @@index([phong_id, gio_bat_dau])
+  @@map("suat_chieu")
+}
+
+// ---------------------------------------------------------------
+// A: Đặt vé, vé, giữ ghế
+// ---------------------------------------------------------------
+
+model DatVe {
+  id            Int            @id @default(autoincrement())
+  nguoi_dung_id Int
+  suat_chieu_id Int
+  trang_thai    TrangThaiDatVe @default(CHO_THANH_TOAN)
+  tao_luc       DateTime       @default(now()) @db.Timestamptz(6)
+  het_han_luc   DateTime?      @db.Timestamptz(6)
+
+  nguoi_dung NguoiDung @relation(fields: [nguoi_dung_id], references: [id])
+  suat_chieu SuatChieu @relation(fields: [suat_chieu_id], references: [id])
+  ve         Ve[]
+  don_hang   DonHang?
+
+  @@index([nguoi_dung_id])
+  @@map("dat_ve")
+}
+
+model Ve {
+  id            Int         @id @default(autoincrement())
+  dat_ve_id     Int
+  suat_chieu_id Int         // lặp lại có chủ ý để đặt UNIQUE chống trùng ghế
+  ghe_id        Int
+  gia           Decimal     @db.Decimal(12, 0)
+  trang_thai    TrangThaiVe @default(DA_DAT)
+
+  dat_ve     DatVe     @relation(fields: [dat_ve_id], references: [id], onDelete: Cascade)
+  suat_chieu SuatChieu @relation(fields: [suat_chieu_id], references: [id])
+  ghe        Ghe       @relation(fields: [ghe_id], references: [id])
+
+  // Chống đặt trùng ghế ở tầng vật lý. A cân nhắc partial index nếu cần bán lại ghế đã hủy.
+  @@unique([suat_chieu_id, ghe_id])
+  @@map("ve")
+}
+
+model GiuGhe {
+  id            Int      @id @default(autoincrement())
+  suat_chieu_id Int
+  ghe_id        Int
+  nguoi_dung_id Int
+  tao_luc       DateTime @default(now()) @db.Timestamptz(6)
+  het_han_luc   DateTime @db.Timestamptz(6)
+
+  suat_chieu SuatChieu @relation(fields: [suat_chieu_id], references: [id])
+  ghe        Ghe       @relation(fields: [ghe_id], references: [id])
+  nguoi_dung NguoiDung @relation(fields: [nguoi_dung_id], references: [id])
+
+  @@unique([suat_chieu_id, ghe_id])
+  @@index([het_han_luc])
+  @@map("giu_ghe")
+}
+
+// ---------------------------------------------------------------
+// D: Đơn hàng, thanh toán, combo
+// ---------------------------------------------------------------
+
+model DonHang {
+  id             Int              @id @default(autoincrement())
+  nguoi_dung_id  Int
+  dat_ve_id      Int              @unique // quan hệ 1-1 với dat_ve
+  khuyen_mai_id  Int?
+  tong_tien      Decimal          @default(0) @db.Decimal(12, 0)
+  so_tien_giam   Decimal          @default(0) @db.Decimal(12, 0)
+  trang_thai     TrangThaiDonHang @default(CHO_THANH_TOAN)
+  tao_luc        DateTime         @default(now()) @db.Timestamptz(6)
+
+  nguoi_dung NguoiDung  @relation(fields: [nguoi_dung_id], references: [id])
+  dat_ve     DatVe      @relation(fields: [dat_ve_id], references: [id])
+  khuyen_mai KhuyenMai? @relation(fields: [khuyen_mai_id], references: [id])
+  thanh_toan ThanhToan[]
+  combo      DonHangCombo[]
+
+  @@index([nguoi_dung_id])
+  @@map("don_hang")
+}
+
+model ThanhToan {
+  id             Int                 @id @default(autoincrement())
+  don_hang_id    Int
+  so_tien        Decimal             @db.Decimal(12, 0) // CHECK > 0 (SQL migration)
+  phuong_thuc    PhuongThucThanhToan
+  trang_thai     TrangThaiThanhToan
+  thanh_toan_luc DateTime            @default(now()) @db.Timestamptz(6)
+
+  don_hang DonHang @relation(fields: [don_hang_id], references: [id])
+
+  @@index([don_hang_id])
+  @@map("thanh_toan")
+}
+
+model Combo {
+  id       Int     @id @default(autoincrement())
+  ten      String  @db.VarChar(100)
+  mo_ta    String?
+  gia      Decimal @db.Decimal(12, 0)
+  ton_kho  Int     @default(0) // CHECK >= 0 (SQL migration)
+  dang_ban Boolean @default(true)
+
+  don_hang DonHangCombo[]
+
+  @@map("combo")
+}
+
+model DonHangCombo {
+  don_hang_id Int
+  combo_id    Int
+  so_luong    Int     // CHECK > 0 (SQL migration)
+  don_gia     Decimal @db.Decimal(12, 0)
+
+  don_hang DonHang @relation(fields: [don_hang_id], references: [id], onDelete: Cascade)
+  combo    Combo   @relation(fields: [combo_id], references: [id])
+
+  @@id([don_hang_id, combo_id])
+  @@map("don_hang_combo")
+}
+
+// ---------------------------------------------------------------
+// E: Khuyến mãi, thẻ thành viên, đánh giá
+// ---------------------------------------------------------------
+
+model KhuyenMai {
+  id               Int           @id @default(autoincrement())
+  ma               String        @unique @db.VarChar(30)
+  mo_ta            String?
+  loai             LoaiKhuyenMai
+  gia_tri          Decimal       @db.Decimal(12, 2)
+  so_luong_con_lai Int           // CHECK >= 0 (SQL migration)
+  ngay_bat_dau     DateTime      @db.Date
+  ngay_ket_thuc    DateTime      @db.Date // CHECK >= ngay_bat_dau (SQL migration)
+
+  don_hang DonHang[]
+
+  @@map("khuyen_mai")
+}
+
+model TheThanhVien {
+  id             Int      @id @default(autoincrement())
+  nguoi_dung_id  Int      @unique // quan hệ 1-1 với nguoi_dung
+  hang           HangThe  @default(DONG)
+  diem_tich_luy  Int      @default(0) // CHECK >= 0 (SQL migration)
+  ngay_cap       DateTime @default(now()) @db.Timestamptz(6)
+
+  nguoi_dung NguoiDung @relation(fields: [nguoi_dung_id], references: [id], onDelete: Cascade)
+
+  @@map("the_thanh_vien")
+}
+
+model DanhGia {
+  id            Int      @id @default(autoincrement())
+  nguoi_dung_id Int
+  phim_id       Int
+  diem_so       Int      // CHECK BETWEEN 1 AND 5 (SQL migration)
+  noi_dung      String?
+  tao_luc       DateTime @default(now()) @db.Timestamptz(6)
+
+  nguoi_dung NguoiDung @relation(fields: [nguoi_dung_id], references: [id], onDelete: Cascade)
+  phim       Phim      @relation(fields: [phim_id], references: [id], onDelete: Cascade)
+
+  @@unique([nguoi_dung_id, phim_id])
+  @@map("danh_gia")
+}
